@@ -15,6 +15,8 @@ export interface GDPS {
 }
 
 export async function getGDPS(id: string) {
-    const resp = await axios.get(`https://api.rigby.host/gdps/${id}/fetch`)
+    const resp = await axios.get(`https://api.rigby.host/gdps/${id}/fetch`, {
+        timeout: 300000,
+    })
     return resp.data as GDPS
 }

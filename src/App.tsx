@@ -84,7 +84,7 @@ function App() {
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
         </div>
       )}
-      <Sidebar variant="floating">
+      <Sidebar>
         <SidebarContent className="py-2">
           <div
             className="flex items-center gap-3 px-3 py-2 cursor-default select-none"
@@ -108,11 +108,11 @@ function App() {
             {servers.map((server) => (
               <Card
                 key={server.server.srvid}
-                className={`items-center justify-center cursor-pointer hover:bg-white/5 transition-colors ${selectedServer?.server.srvid === server.server.srvid ? "bg-white/10" : ""}`}
+                className={`items-center justify-center cursor-pointer py-2! gap-2 transition-colors ${selectedServer?.server.srvid === server.server.srvid ? "bg-white/10" : ""}`}
                 onClick={() => setSelectedServer(server)}
               >
-                <img src={server.server.icon} className="w-10 h-10 rounded-full" alt={server.server.srvName} />
-                <div className="flex flex-col items-center justify-center">
+                <img src={server.server.icon} className="w-10 h-10 rounded-lg" alt={server.server.srvName} />
+                <div className="flex flex-col items-center justify-center text-center">
                   <span className="text-sm font-bold">{server.server.srvName}</span>
                   <span className="text-xs text-muted-foreground">{server.server.description || "No description"}</span>
                 </div>

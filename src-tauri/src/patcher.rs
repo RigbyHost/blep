@@ -4,6 +4,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 use tauri::Manager;
 use walkdir::WalkDir;
 
@@ -174,7 +175,11 @@ fn find_or_download_gd(app_handle: &tauri::AppHandle) -> io::Result<(PathBuf, bo
         WIN_GD_URL
     };
 
-    let resp = Client::new()
+    let client = Client::builder().timeout(Duration::from_secs(600))
+        .build()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+    let resp = client
         .get(url)
         .send()
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
