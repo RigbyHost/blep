@@ -154,18 +154,54 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
     Ok(())
 }
 
+fn find_windows_gd_root(gd_cache: &Path) -> io::Result<PathBuf> {
+    if !gd_cache.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "GeometryDash cache directory not found",
+        ));
+    }
+
+    let direct_exe = gd_cache.join("GeometryDash.exe");
+    if direct_exe.is_file() {
+        return Ok(gd_cache.to_path_buf());
+    }
+
+    let nested_dir = gd_cache.join("GeometryDash");
+    if nested_dir.join("GeometryDash.exe").is_file() {
+        return Ok(nested_dir);
+    }
+
+    for entry in WalkDir::new(gd_cache).min_depth(1) {
+        let entry = entry?;
+        if entry.file_type().is_file() {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.eq_ignore_ascii_case("GeometryDash.exe") {
+                    if let Some(parent) = entry.path().parent() {
+                        return Ok(parent.to_path_buf());
+                    }
+                }
+            }
+        }
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        "GeometryDash.exe not found in cache",
+    ))
+}
+
 fn find_or_download_gd(app_handle: &tauri::AppHandle) -> io::Result<(PathBuf, bool)> {
     let cache_dir = app_handle.path().app_cache_dir().unwrap();
     let gd_cache = cache_dir.join("GeometryDash");
 
-    let expected_path = if cfg!(target_os = "macos") {
-        gd_cache.join("GeometryDash.app")
-    } else {
-        gd_cache.join("GeometryDash")
-    };
-
-    if expected_path.exists() {
-        return Ok((expected_path, cfg!(target_os = "macos")));
+    if cfg!(target_os = "macos") {
+        let expected_path = gd_cache.join("GeometryDash.app");
+        if expected_path.exists() {
+            return Ok((expected_path, true));
+        }
+    } else if let Ok(root_path) = find_windows_gd_root(&gd_cache) {
+        return Ok((root_path, false));
     }
 
     fs::create_dir_all(&gd_cache)?;
@@ -222,7 +258,9 @@ fn find_or_download_gd(app_handle: &tauri::AppHandle) -> io::Result<(PathBuf, bo
 
     #[cfg(target_os = "macos")]
     {
-        let binary_path = expected_path.join("Contents/MacOS/Geometry Dash");
+        let binary_path = gd_cache
+            .join("GeometryDash.app")
+            .join("Contents/MacOS/Geometry Dash");
         if binary_path.exists() {
             Command::new("chmod")
                 .args(&["+x"])
@@ -231,7 +269,12 @@ fn find_or_download_gd(app_handle: &tauri::AppHandle) -> io::Result<(PathBuf, bo
         }
     }
 
-    Ok((expected_path, cfg!(target_os = "macos")))
+    if cfg!(target_os = "macos") {
+        Ok((gd_cache.join("GeometryDash.app"), true))
+    } else {
+        let root_path = find_windows_gd_root(&gd_cache)?;
+        Ok((root_path, false))
+    }
 }
 
 fn resign_app(path: &Path) -> io::Result<()> {
