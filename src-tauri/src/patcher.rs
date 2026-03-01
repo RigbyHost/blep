@@ -12,7 +12,121 @@ const MAC_GD_URL: &str = "https://cdn.rigby.host/GeometryDash.app.zip";
 const WIN_GD_URL: &str = "https://cdn.rigby.host/GeometryDash.zip";
 const ORIGINAL_URL: &str = "https://www.boomlings.com/database/";
 
-pub fn patch_game(app_handle: tauri::AppHandle, id: String) -> Result<String, String> {
+fn sanitize_windows_file_stem(input: &str) -> String {
+    let mut stem: String = input
+        .chars()
+        .map(|ch| match ch {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect();
+
+    stem = stem
+        .trim_matches(|c: char| c == ' ' || c == '.')
+        .to_string();
+    if stem.is_empty() {
+        stem = "server".to_string();
+    }
+
+    let upper = stem.to_ascii_uppercase();
+    let is_reserved = matches!(
+        upper.as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    );
+
+    if is_reserved {
+        stem.push_str("_server");
+    }
+
+    stem
+}
+
+fn windows_server_exe_name(server_id: &str, server_name: Option<&str>) -> String {
+    let fallback = sanitize_windows_file_stem(server_id);
+    let preferred = server_name
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or(server_id);
+    let mut stem = sanitize_windows_file_stem(preferred);
+
+    if stem.eq_ignore_ascii_case("GeometryDash") {
+        stem = format!("{}_{}", stem, fallback);
+    }
+
+    format!("{}.exe", stem)
+}
+
+fn resolve_windows_exe_path(
+    server_dir: &Path,
+    server_id: &str,
+    server_name: Option<&str>,
+) -> Option<PathBuf> {
+    let preferred = server_dir.join(windows_server_exe_name(server_id, server_name));
+    if preferred.is_file() {
+        return Some(preferred);
+    }
+
+    let id_named = server_dir.join(format!("{}.exe", sanitize_windows_file_stem(server_id)));
+    if id_named.is_file() {
+        return Some(id_named);
+    }
+
+    let legacy = server_dir.join("GeometryDash.exe");
+    if legacy.is_file() {
+        return Some(legacy);
+    }
+
+    for entry in WalkDir::new(server_dir).min_depth(1).max_depth(1) {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+
+        if !entry.file_type().is_file() {
+            continue;
+        }
+
+        let is_exe = entry
+            .path()
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("exe"))
+            .unwrap_or(false);
+
+        if is_exe {
+            return Some(entry.path().to_path_buf());
+        }
+    }
+
+    None
+}
+
+pub fn patch_game(
+    app_handle: tauri::AppHandle,
+    id: String,
+    server_name: Option<String>,
+) -> Result<String, String> {
     let gdps_url = format!("https://gdps.rigby.host/{}/db////", id);
 
     let mut new_bytes = gdps_url.as_bytes().to_vec();
@@ -50,7 +164,19 @@ pub fn patch_game(app_handle: tauri::AppHandle, id: String) -> Result<String, St
         dest_bundle.join("Contents/MacOS/Geometry Dash")
     } else {
         copy_dir_recursive(&base_path, &target_dir).map_err(|e| e.to_string())?;
-        target_dir.join("GeometryDash.exe")
+        let source_exe_path = target_dir.join("GeometryDash.exe");
+        let renamed_exe_path =
+            target_dir.join(windows_server_exe_name(&server_id, server_name.as_deref()));
+
+        if source_exe_path.exists() && source_exe_path != renamed_exe_path {
+            fs::rename(&source_exe_path, &renamed_exe_path).map_err(|e| e.to_string())?;
+        }
+
+        if !renamed_exe_path.exists() {
+            return Err("Game executable not found after copy".to_string());
+        }
+
+        renamed_exe_path
     };
 
     let mut data = fs::read(&target_binary_path).map_err(|e| e.to_string())?;
@@ -88,7 +214,11 @@ pub fn patch_game(app_handle: tauri::AppHandle, id: String) -> Result<String, St
     Ok(server_id)
 }
 
-pub fn run_game(app_handle: tauri::AppHandle, id: String) -> Result<(), String> {
+pub fn run_game(
+    app_handle: tauri::AppHandle,
+    id: String,
+    server_name: Option<String>,
+) -> Result<(), String> {
     let app_data_dir = app_handle
         .path()
         .app_data_dir()
@@ -110,10 +240,8 @@ pub fn run_game(app_handle: tauri::AppHandle, id: String) -> Result<(), String> 
             .spawn()
             .map_err(|e| e.to_string())?;
     } else {
-        let exe_path = server_dir.join("GeometryDash.exe");
-        if !exe_path.exists() {
-            return Err("Game executable not found".to_string());
-        }
+        let exe_path = resolve_windows_exe_path(&server_dir, &id, server_name.as_deref())
+            .ok_or("Game executable not found".to_string())?;
         Command::new(exe_path)
             .current_dir(&server_dir)
             .spawn()
@@ -144,7 +272,6 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
             fs::copy(entry.path(), &target_path)?;
             #[cfg(unix)]
             {
-                use std::os::unix::fs::PermissionsExt;
                 let metadata = fs::metadata(entry.path())?;
                 let permissions = metadata.permissions();
                 fs::set_permissions(&target_path, permissions)?;
@@ -211,7 +338,8 @@ fn find_or_download_gd(app_handle: &tauri::AppHandle) -> io::Result<(PathBuf, bo
         WIN_GD_URL
     };
 
-    let client = Client::builder().timeout(Duration::from_secs(600))
+    let client = Client::builder()
+        .timeout(Duration::from_secs(600))
         .build()
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 

@@ -1,16 +1,24 @@
 mod patcher;
 
 #[tauri::command]
-async fn patch_game(app: tauri::AppHandle, id: String) -> Result<String, String> {
+async fn patch_game(
+    app: tauri::AppHandle,
+    id: String,
+    server_name: Option<String>,
+) -> Result<String, String> {
     // Run blocking task in separate thread
-    tauri::async_runtime::spawn_blocking(move || patcher::patch_game(app, id))
+    tauri::async_runtime::spawn_blocking(move || patcher::patch_game(app, id, server_name))
         .await
         .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-async fn run_game(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || patcher::run_game(app, id))
+async fn run_game(
+    app: tauri::AppHandle,
+    id: String,
+    server_name: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || patcher::run_game(app, id, server_name))
         .await
         .map_err(|e| e.to_string())?
 }

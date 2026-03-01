@@ -50,16 +50,27 @@ function App() {
   }
 
   async function handleAddServer() {
-    if (!newServerUrl.trim()) {
+    const serverId = newServerUrl.trim();
+
+    if (!serverId) {
       alert("Неверный ID");
       return;
     }
 
     setPatching(true);
-    setPatchStatus("Патчим игру...");
+    setPatchStatus("Проверяем сервер...");
 
     try {
-      await invoke("patch_game", { id: newServerUrl.trim() });
+      const serverInfo = await getGDPS(serverId);
+      if (!serverInfo.success) {
+        throw new Error("Сервер не найден");
+      }
+
+      setPatchStatus("Патчим игру...");
+      await invoke("patch_game", {
+        id: serverId,
+        serverName: serverInfo.server.srvName,
+      });
       setPatchStatus("Готово!");
       setNewServerUrl("");
       setShowAddModal(false);
@@ -75,7 +86,10 @@ function App() {
   async function handleRunGame() {
     if (!selectedServer) return;
     try {
-      await invoke("run_game", { id: selectedServer.server.srvid });
+      await invoke("run_game", {
+        id: selectedServer.server.srvid,
+        serverName: selectedServer.server.srvName,
+      });
     } catch (e) {
       alert(`Ошибка запуска: ${e}`);
     }
