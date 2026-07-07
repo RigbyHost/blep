@@ -27,3 +27,5 @@ Desktop-приложение на Tauri и React для установки и з
 
 ## Лицензия
 Проект распространяется по лицензии GPL-3.0-or-later, подробности в файле `LICENSE`.
+
+du bist gut genuuuug
